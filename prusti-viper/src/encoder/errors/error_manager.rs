@@ -37,6 +37,7 @@ pub enum PanicCause {
 pub enum BuiltinMethodKind {
     WriteConstant,
     MovePlace,
+    CopyPlace,
     IntoMemoryBlock,
     SplitMemoryBlock,
     JoinMemoryBlock,
@@ -44,6 +45,7 @@ pub enum BuiltinMethodKind {
     ChangeUniqueRefPlace,
     DuplicateFracRef,
     Assign,
+    RestoreRawBorrowed,
 }
 
 /// In case of verification error, this enum will contain additional information
@@ -180,6 +182,14 @@ pub enum ErrorCtxt {
     /// The state that fold-unfold algorithm deduced as unreachable, is actually
     /// reachable.
     UnreachableFoldingState,
+    /// A user-specified pack operation failed.
+    Pack,
+    /// A user-specified unpack operation failed.
+    Unpack,
+    /// A user-specified forget-initialization operation failed.
+    ForgetInitialization,
+    /// Restore a place borrowed via raw pointer.
+    RestoreRawBorrowed,
 }
 
 /// The error manager
@@ -404,6 +414,7 @@ impl<'tcx> ErrorManager<'tcx> {
                     .set_help("This might be a bug in the Rust compiler.")
             }
 
+            ("exhale.failed:assertion.false", ErrorCtxt::ExhaleMethodPrecondition) |
             ("assert.failed:assertion.false", ErrorCtxt::ExhaleMethodPrecondition) => {
                 PrustiError::verification("precondition might not hold.", error_span)
                     .set_failing_assertion(opt_cause_span)
@@ -559,7 +570,8 @@ impl<'tcx> ErrorManager<'tcx> {
                     .set_failing_assertion(opt_cause_span)
             }
 
-            ("assert.failed:assertion.false", ErrorCtxt::AssertMethodPostcondition) => {
+            ("assert.failed:assertion.false", ErrorCtxt::AssertMethodPostcondition)
+            |("exhale.failed:assertion.false", ErrorCtxt::AssertMethodPostcondition)=> {
                 PrustiError::verification("postcondition might not hold.".to_string(), error_span)
                     .push_primary_span(opt_cause_span)
             }
@@ -697,6 +709,27 @@ impl<'tcx> ErrorManager<'tcx> {
                     "The loop variant might go below zero while the loop continues".to_string(),
                     error_span
                 )
+            }
+
+            ("call.precondition:insufficient.permission", ErrorCtxt::CopyPlace) => {
+                PrustiError::verification(
+                    "the accessed place may not be allocated or initialized".to_string(),
+                    error_span
+                ).set_failing_assertion(opt_cause_span)
+            }
+
+            ("call.precondition:insufficient.permission", ErrorCtxt::WritePlace) => {
+                PrustiError::verification(
+                    "the accessed memory location must be allocated and uninitialized".to_string(),
+                    error_span
+                ).set_failing_assertion(opt_cause_span)
+            }
+
+            ("call.precondition:assertion.false", ErrorCtxt::Assign) => {
+                PrustiError::verification(
+                    "The type invariant of the constructed object might not hold".to_string(),
+                    error_span
+                ).set_failing_assertion(opt_cause_span)
             }
 
             (full_err_id, ErrorCtxt::Unexpected) => {

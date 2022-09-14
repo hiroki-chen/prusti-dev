@@ -54,6 +54,7 @@ impl<'v, 'tcx> HighToTypedTypeDeclLowerer for crate::encoder::Encoder<'v, 'tcx> 
             self.generate_tuple_name(&arguments)?,
             decl.lifetimes.high_to_typed_type(self)?,
             decl.const_parameters.high_to_typed_expression(self)?,
+            None,
             arguments
                 .into_iter()
                 .enumerate()

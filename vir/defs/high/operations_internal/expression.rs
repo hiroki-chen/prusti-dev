@@ -8,6 +8,7 @@ use super::{
             *,
         },
         position::Position,
+        predicate::visitors::{PredicateFolder, PredicateWalker},
         ty::{self, visitors::TypeFolder, LifetimeConst, Type},
     },
     ty::Typed,
@@ -193,6 +194,30 @@ impl Expression {
         }
     }
 
+    pub fn is_behind_pointer_dereference(&self) -> bool {
+        assert!(self.is_place());
+        if let Some(parent) = self.get_parent_ref() {
+            if self.is_deref() && parent.get_type().is_pointer() {
+                return true;
+            }
+            parent.is_behind_pointer_dereference()
+        } else {
+            false
+        }
+    }
+
+    pub fn get_last_dereferenced_pointer(&self) -> Option<&Expression> {
+        assert!(self.is_place());
+        if let Some(parent) = self.get_parent_ref() {
+            if self.is_deref() && parent.get_type().is_pointer() {
+                return Some(parent);
+            }
+            parent.get_last_dereferenced_pointer()
+        } else {
+            None
+        }
+    }
+
     #[must_use]
     pub fn erase_lifetime(self) -> Expression {
         struct DefaultLifetimeEraser {}
@@ -322,12 +347,20 @@ impl Expression {
                     default_fold_expression(self, expression)
                 }
             }
+            fn fold_predicate(&mut self, predicate: Predicate) -> Predicate {
+                PredicateFolder::fold_predicate(self, predicate)
+            }
+        }
+        impl<'a> PredicateFolder for PlaceReplacer<'a> {
+            fn fold_expression(&mut self, expression: Expression) -> Expression {
+                ExpressionFolder::fold_expression(self, expression)
+            }
         }
         let mut replacer = PlaceReplacer {
             target,
             replacement,
         };
-        replacer.fold_expression(self)
+        ExpressionFolder::fold_expression(&mut replacer, self)
     }
     #[must_use]
     pub fn replace_multiple_places(self, replacements: &[(Expression, Expression)]) -> Self {
@@ -364,8 +397,18 @@ impl Expression {
                 }
                 Expression::Quantifier(default_fold_quantifier(self, quantifier))
             }
+
+            fn fold_predicate(&mut self, predicate: Predicate) -> Predicate {
+                PredicateFolder::fold_predicate(self, predicate)
+            }
         }
-        PlaceReplacer { replacements }.fold_expression(self)
+        impl<'a> PredicateFolder for PlaceReplacer<'a> {
+            fn fold_expression(&mut self, expression: Expression) -> Expression {
+                ExpressionFolder::fold_expression(self, expression)
+            }
+        }
+        let mut replacer = PlaceReplacer { replacements };
+        ExpressionFolder::fold_expression(&mut replacer, self)
     }
     #[must_use]
     pub fn map_old_expression_label<F>(self, substitutor: F) -> Self
@@ -545,13 +588,21 @@ impl Expression {
                     default_walk_expression(self, expr)
                 }
             }
+            fn walk_predicate(&mut self, predicate: &Predicate) {
+                PredicateWalker::walk_predicate(self, predicate)
+            }
+        }
+        impl<'a> PredicateWalker for ExprFinder<'a> {
+            fn walk_expression(&mut self, expr: &Expression) {
+                ExpressionWalker::walk_expression(self, expr)
+            }
         }
 
         let mut finder = ExprFinder {
             sub_target,
             found: false,
         };
-        finder.walk_expression(self);
+        ExpressionWalker::walk_expression(&mut finder, self);
         finder.found
     }
     pub fn function_call<S: Into<String>>(
@@ -685,5 +736,19 @@ impl Expression {
 
     pub fn full_permission() -> Self {
         Self::constant_no_pos(ConstantValue::Int(1), Type::MPerm)
+    }
+
+    pub fn is_pure(&self) -> bool {
+        struct Checker {
+            is_pure: bool,
+        }
+        impl ExpressionWalker for Checker {
+            fn walk_acc_predicate(&mut self, _: &AccPredicate) {
+                self.is_pure = false;
+            }
+        }
+        let mut checker = Checker { is_pure: true };
+        checker.walk_expression(self);
+        checker.is_pure
     }
 }

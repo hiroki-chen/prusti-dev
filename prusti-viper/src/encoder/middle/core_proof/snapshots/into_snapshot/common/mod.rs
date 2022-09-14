@@ -3,20 +3,27 @@ use crate::encoder::{
     errors::SpannedEncodingResult,
     high::types::HighTypeEncoderInterface,
     middle::core_proof::{
+        addresses::AddressesInterface,
         lifetimes::*,
         lowerer::DomainsLowererInterface,
+        pointers::PointersInterface,
         references::ReferencesInterface,
-        snapshots::{IntoSnapshot, SnapshotDomainsInterface, SnapshotValuesInterface},
+        snapshots::{
+            IntoSnapshot, SnapshotDomainsInterface, SnapshotValidityInterface,
+            SnapshotValuesInterface,
+        },
         types::TypesInterface,
     },
 };
 use vir_crate::{
-    common::{identifier::WithIdentifier, position::Positioned},
+    common::{
+        expression::BinaryOperationHelpers, identifier::WithIdentifier, position::Positioned,
+    },
     low::{self as vir_low},
     middle::{self as vir_mid, operations::ty::Typed},
 };
 
-pub(super) trait IntoSnapshotLowerer<'p, 'v: 'p, 'tcx: 'v> {
+pub(in super::super::super) trait IntoSnapshotLowerer<'p, 'v: 'p, 'tcx: 'v> {
     fn expression_vec_to_snapshot(
         &mut self,
         lowerer: &mut Lowerer<'p, 'v, 'tcx>,
@@ -34,6 +41,15 @@ pub(super) trait IntoSnapshotLowerer<'p, 'v: 'p, 'tcx: 'v> {
     /// `expect_math_bool` argument indicates whether we expect the expression
     /// to be of type mathematical `Bool` or it should be a snapshot bool.
     fn expression_to_snapshot(
+        &mut self,
+        lowerer: &mut Lowerer<'p, 'v, 'tcx>,
+        expression: &vir_mid::Expression,
+        expect_math_bool: bool,
+    ) -> SpannedEncodingResult<vir_low::Expression> {
+        self.expression_to_snapshot_impl(lowerer, expression, expect_math_bool)
+    }
+
+    fn expression_to_snapshot_impl(
         &mut self,
         lowerer: &mut Lowerer<'p, 'v, 'tcx>,
         expression: &vir_mid::Expression,
@@ -84,6 +100,9 @@ pub(super) trait IntoSnapshotLowerer<'p, 'v: 'p, 'tcx: 'v> {
                 self.builtin_func_app_to_snapshot(lowerer, expression, expect_math_bool)
             }
             // vir_mid::Expression::Downcast(expression) => self.downcast_to_snapshot(lowerer, expression, expect_math_bool),
+            vir_mid::Expression::AccPredicate(expression) => {
+                self.acc_predicate_to_snapshot(lowerer, expression, expect_math_bool)
+            }
             x => unimplemented!("{:?}", x),
         }
     }
@@ -186,12 +205,16 @@ pub(super) trait IntoSnapshotLowerer<'p, 'v: 'p, 'tcx: 'v> {
         deref: &vir_mid::Deref,
         expect_math_bool: bool,
     ) -> SpannedEncodingResult<vir_low::Expression> {
+        eprintln!("deref: {}", deref);
+        eprintln!("  deref: {:?}", deref);
         let base_snapshot = self.expression_to_snapshot(lowerer, &deref.base, expect_math_bool)?;
-        let result = lowerer.reference_target_current_snapshot(
-            deref.base.get_type(),
-            base_snapshot,
-            Default::default(),
-        )?;
+        eprintln!("  reference_base type: {}", deref.base.get_type());
+        let ty = deref.base.get_type();
+        let result = if ty.is_reference() {
+            lowerer.reference_target_current_snapshot(ty, base_snapshot, Default::default())?
+        } else {
+            unreachable!("For this case, this function should be overriden.")
+        };
         self.ensure_bool_expression(lowerer, deref.get_type(), result, expect_math_bool)
     }
 
@@ -317,6 +340,15 @@ pub(super) trait IntoSnapshotLowerer<'p, 'v: 'p, 'tcx: 'v> {
         op: &vir_mid::BinaryOp,
         expect_math_bool: bool,
     ) -> SpannedEncodingResult<vir_low::Expression> {
+        self.binary_op_to_snapshot_impl(lowerer, op, expect_math_bool)
+    }
+
+    fn binary_op_to_snapshot_impl(
+        &mut self,
+        lowerer: &mut Lowerer<'p, 'v, 'tcx>,
+        op: &vir_mid::BinaryOp,
+        expect_math_bool: bool,
+    ) -> SpannedEncodingResult<vir_low::Expression> {
         // FIXME: Binary Operations with MPerm should not be handled manually as special cases
         //   They are difficult because binary operations with MPerm and Integer values are allowed.
         //   Also some of them translate tot PermBinaryOp.
@@ -376,15 +408,26 @@ pub(super) trait IntoSnapshotLowerer<'p, 'v: 'p, 'tcx: 'v> {
             self.expression_to_snapshot(lowerer, &op.right, expect_math_bool_args)?;
         let arg_type = op.left.get_type().clone().erase_lifetimes();
         assert_eq!(arg_type, op.right.get_type().clone().erase_lifetimes());
-        let result = lowerer.construct_binary_op_snapshot(
-            op.op_kind,
-            ty,
-            &arg_type,
-            left_snapshot,
-            right_snapshot,
-            op.position,
-        )?;
-        self.ensure_bool_expression(lowerer, ty, result, expect_math_bool)
+        if expect_math_bool && op.op_kind == vir_mid::BinaryOpKind::EqCmp {
+            // FIXME: Instead of this ad-hoc optimization, have a proper
+            // optimization pass.
+            Ok(vir_low::Expression::binary_op(
+                vir_low::BinaryOpKind::EqCmp,
+                left_snapshot,
+                right_snapshot,
+                op.position,
+            ))
+        } else {
+            let result = lowerer.construct_binary_op_snapshot(
+                op.op_kind,
+                ty,
+                &arg_type,
+                left_snapshot,
+                right_snapshot,
+                op.position,
+            )?;
+            self.ensure_bool_expression(lowerer, ty, result, expect_math_bool)
+        }
     }
 
     fn binary_op_kind_to_snapshot(
@@ -444,7 +487,7 @@ pub(super) trait IntoSnapshotLowerer<'p, 'v: 'p, 'tcx: 'v> {
     fn builtin_func_app_to_snapshot(
         &mut self,
         lowerer: &mut Lowerer<'p, 'v, 'tcx>,
-        app: &vir_crate::middle::expression::BuiltinFuncApp,
+        app: &vir_mid::BuiltinFuncApp,
         expect_math_bool: bool,
     ) -> SpannedEncodingResult<vir_low::Expression> {
         use vir_low::expression::ContainerOpKind;
@@ -508,6 +551,17 @@ pub(super) trait IntoSnapshotLowerer<'p, 'v: 'p, 'tcx: 'v> {
                 let return_type = self.type_to_snapshot(lowerer, &app.return_type)?;
                 lowerer.create_domain_func_app(
                     "Size",
+                    app.get_identifier(),
+                    args,
+                    return_type,
+                    app.position,
+                )
+            }
+            BuiltinFunc::Align => {
+                assert_eq!(args.len(), 0);
+                let return_type = self.type_to_snapshot(lowerer, &app.return_type)?;
+                lowerer.create_domain_func_app(
+                    "Align",
                     app.get_identifier(),
                     args,
                     return_type,
@@ -667,8 +721,31 @@ pub(super) trait IntoSnapshotLowerer<'p, 'v: 'p, 'tcx: 'v> {
                     lowerer.construct_constant_snapshot(&vir_mid::Type::Bool, value, app.position)
                 }
             }
+            BuiltinFunc::IsNull => {
+                assert_eq!(args.len(), 1);
+                let ty = app.arguments[0].get_type();
+                let address = lowerer.pointer_address(ty, args[0].clone(), app.position)?;
+                let null_address = lowerer.address_null(app.position)?;
+                let equals = vir_low::Expression::equals(address, null_address);
+                let equals =
+                    lowerer.construct_constant_snapshot(app.get_type(), equals, app.position)?;
+                self.ensure_bool_expression(lowerer, app.get_type(), equals, expect_math_bool)
+            }
+            BuiltinFunc::IsValid => {
+                assert_eq!(app.arguments.len(), 1);
+                let argument = args.pop().unwrap();
+                let ty = app.arguments[0].get_type();
+                lowerer.encode_snapshot_valid_call_for_type(argument, ty)
+            }
         }
     }
+
+    fn acc_predicate_to_snapshot(
+        &mut self,
+        lowerer: &mut Lowerer<'p, 'v, 'tcx>,
+        predicate: &vir_mid::AccPredicate,
+        expect_math_bool: bool,
+    ) -> SpannedEncodingResult<vir_low::Expression>;
 
     fn type_to_snapshot(
         &mut self,

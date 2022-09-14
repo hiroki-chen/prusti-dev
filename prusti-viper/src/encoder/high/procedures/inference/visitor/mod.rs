@@ -353,6 +353,56 @@ impl<'p, 'v, 'tcx> Visitor<'p, 'v, 'tcx> {
                 self.current_statements
                     .push(statement.typed_to_middle_statement(self.encoder)?);
             }
+            vir_typed::Statement::Pack(pack_statement) => {
+                state.remove_manually_managed(&pack_statement.place)?;
+                let position = pack_statement.position();
+                let place = pack_statement
+                    .place
+                    .clone()
+                    .typed_to_middle_expression(self.encoder)?;
+                let encoded_statement = vir_mid::Statement::fold_owned(place, None, position);
+                self.current_statements.push(encoded_statement);
+            }
+            vir_typed::Statement::Unpack(unpack_statement) => {
+                state.insert_manually_managed(unpack_statement.place.clone())?;
+                let position = unpack_statement.position();
+                let place = unpack_statement
+                    .place
+                    .clone()
+                    .typed_to_middle_expression(self.encoder)?;
+                let encoded_statement = vir_mid::Statement::unfold_owned(place, None, position);
+                self.current_statements.push(encoded_statement);
+            }
+            vir_typed::Statement::Join(join_statement) => {
+                let position = join_statement.position();
+                let place = join_statement
+                    .place
+                    .clone()
+                    .typed_to_middle_expression(self.encoder)?;
+                let encoded_statement = vir_mid::Statement::join_block(place, None, None, position);
+                self.current_statements.push(encoded_statement);
+            }
+            vir_typed::Statement::Split(split_statement) => {
+                let position = split_statement.position();
+                let place = split_statement
+                    .place
+                    .clone()
+                    .typed_to_middle_expression(self.encoder)?;
+                let encoded_statement =
+                    vir_mid::Statement::split_block(place, None, None, position);
+                self.current_statements.push(encoded_statement);
+            }
+            vir_typed::Statement::ForgetInitialization(forget_statement) => {
+                state.insert_manually_managed(forget_statement.place.clone())?;
+                let position = forget_statement.position();
+                let place = forget_statement
+                    .place
+                    .clone()
+                    .typed_to_middle_expression(self.encoder)?;
+                let encoded_statement =
+                    vir_mid::Statement::convert_owned_into_memory_block(place, None, position);
+                self.current_statements.push(encoded_statement);
+            }
             _ => {
                 self.current_statements
                     .push(statement.typed_to_middle_statement(self.encoder)?);

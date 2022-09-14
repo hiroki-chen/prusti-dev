@@ -27,6 +27,7 @@ pub(super) struct PredicateState {
     memory_block_stack: Places,
     mut_borrowed: BTreeMap<vir_typed::Expression, vir_typed::ty::LifetimeConst>,
     dead_lifetimes: BTreeSet<vir_typed::ty::LifetimeConst>,
+    manually_managed: BTreeSet<vir_typed::Expression>,
 }
 
 pub(super) struct PlaceWithDeadLifetimes {
@@ -136,6 +137,10 @@ impl std::fmt::Display for PredicateState {
         writeln!(f, "mut_borrowed ({}):", self.mut_borrowed.len())?;
         for (place, lifetime) in &self.mut_borrowed {
             writeln!(f, "  &{} {}", lifetime, place)?;
+        }
+        writeln!(f, "manually_managed ({}):", self.manually_managed.len())?;
+        for place in &self.manually_managed {
+            writeln!(f, "  {}", place)?;
         }
         Ok(())
     }
@@ -326,6 +331,15 @@ impl PredicateState {
             };
             place.has_prefix(prefix_expr) || prefix_expr.has_prefix(place)
         }))
+    }
+
+    pub(super) fn is_manually_managed(&self, place: &vir_typed::Expression) -> bool {
+        for potential_prefix in &self.manually_managed {
+            if place.has_prefix(potential_prefix) {
+                return true;
+            }
+        }
+        false
     }
 
     pub(super) fn clear(&mut self) -> SpannedEncodingResult<()> {
@@ -789,8 +803,16 @@ impl FoldUnfoldState {
     ) -> SpannedEncodingResult<()> {
         self.check_no_default_position();
         match permission {
-            Permission::MemoryBlock(place) => self.insert_memory_block(place)?,
-            Permission::Owned(place) => self.insert_owned(place)?,
+            Permission::MemoryBlock(place) => {
+                if !self.is_manually_managed(&place)? {
+                    self.insert_memory_block(place)?;
+                }
+            }
+            Permission::Owned(place) => {
+                if !self.is_manually_managed(&place)? {
+                    self.insert_owned(place)?;
+                }
+            }
             Permission::MutBorrowed(borrow) => self.insert_mut_borrowed(borrow)?,
         }
         self.check_no_default_position();
@@ -818,6 +840,33 @@ impl FoldUnfoldState {
             Permission::Owned(place) => self.remove_owned(place)?,
             Permission::MutBorrowed(_) => unreachable!(),
         }
+        Ok(())
+    }
+
+    pub(super) fn is_manually_managed(
+        &self,
+        place: &vir_typed::Expression,
+    ) -> SpannedEncodingResult<bool> {
+        Ok(self.unconditional.is_manually_managed(place)
+            || self
+                .conditional
+                .values()
+                .any(|conditional| conditional.is_manually_managed(place)))
+    }
+
+    pub(super) fn insert_manually_managed(
+        &mut self,
+        place: vir_typed::Expression,
+    ) -> SpannedEncodingResult<()> {
+        assert!(self.unconditional.manually_managed.insert(place));
+        Ok(())
+    }
+
+    pub(super) fn remove_manually_managed(
+        &mut self,
+        place: &vir_typed::Expression,
+    ) -> SpannedEncodingResult<()> {
+        assert!(self.unconditional.manually_managed.remove(place));
         Ok(())
     }
 

@@ -1,6 +1,7 @@
 pub(crate) use super::{
     field::FieldDecl,
     position::Position,
+    predicate::Predicate,
     ty::{Type, VariantIndex},
     variable::VariableDecl,
 };
@@ -45,6 +46,8 @@ pub enum Expression {
     /// * field that encodes the variant
     // FIXME: Is downcast really needed? Isn't variant enough?
     Downcast(Downcast),
+    /// An accessibility predicate such as `own`.
+    AccPredicate(AccPredicate),
 }
 
 #[display(fmt = "{}", "variable.name")]
@@ -233,6 +236,7 @@ pub enum BuiltinFunc {
     SnapshotEquality,
     Size,
     PaddingSize,
+    Align,
     Discriminant,
     LifetimeIncluded,
     LifetimeIntersect,
@@ -249,6 +253,9 @@ pub enum BuiltinFunc {
     NewInt,
     Index,
     Len,
+    IsNull,
+    IsValid,
+    // GetSnapshot,
 }
 
 #[display(fmt = "__builtin__{}({})", function, "display::cjoin(arguments)")]
@@ -266,5 +273,11 @@ pub struct Downcast {
     pub base: Box<Expression>,
     pub enum_place: Box<Expression>,
     pub field: FieldDecl,
+    pub position: Position,
+}
+
+#[display(fmt = "acc({})", predicate)]
+pub struct AccPredicate {
+    pub predicate: Box<Predicate>,
     pub position: Position,
 }

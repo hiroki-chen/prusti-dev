@@ -75,6 +75,9 @@ impl IntoPolymorphic<vir_poly::Expr> for vir_high::Expression {
             vir_high::Expression::Downcast(expression) => {
                 vir_poly::Expr::Downcast(expression.lower(encoder))
             }
+            vir_high::Expression::AccPredicate(_expression) => {
+                todo!()
+            }
         }
     }
 }

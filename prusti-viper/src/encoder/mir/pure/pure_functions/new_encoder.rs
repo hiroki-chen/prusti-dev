@@ -115,6 +115,7 @@ pub(super) fn encode_pure_expression<'p, 'v: 'p, 'tcx: 'v>(
     );
     // FIXME: Traverse the encoded function and check that all used types are
     // Copy. Doing this before encoding causes too many false positives.
+    let body = super::cleaner::clean_encoding_result(body)?;
     Ok(body)
 }
 

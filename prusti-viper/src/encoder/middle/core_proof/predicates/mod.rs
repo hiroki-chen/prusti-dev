@@ -1,5 +1,6 @@
 mod memory_block;
 mod owned;
+mod restoration;
 mod state;
 
 pub(super) use self::{
@@ -7,5 +8,6 @@ pub(super) use self::{
     owned::{
         FracRefUseBuilder, OwnedNonAliasedUseBuilder, PredicatesOwnedInterface, UniqueRefUseBuilder,
     },
+    restoration::RestorationInterface,
     state::PredicatesState,
 };

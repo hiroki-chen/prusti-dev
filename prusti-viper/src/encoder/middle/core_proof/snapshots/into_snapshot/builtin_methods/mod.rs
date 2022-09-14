@@ -56,4 +56,13 @@ impl<'p, 'v: 'p, 'tcx: 'v> IntoSnapshotLowerer<'p, 'v, 'tcx> for BuiltinMethodSn
         // In pure contexts values cannot be mutated, so `old` has no effect.
         self.expression_to_snapshot(lowerer, &old.base, expect_math_bool)
     }
+
+    fn acc_predicate_to_snapshot(
+        &mut self,
+        _lowerer: &mut Lowerer<'p, 'v, 'tcx>,
+        _predicate: &vir_mid::AccPredicate,
+        _expect_math_bool: bool,
+    ) -> SpannedEncodingResult<vir_low::Expression> {
+        unreachable!()
+    }
 }

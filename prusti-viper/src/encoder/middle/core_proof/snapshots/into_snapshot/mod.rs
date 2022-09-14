@@ -16,7 +16,11 @@ mod pure;
 
 pub(in super::super) use self::{
     builtin_methods::IntoBuiltinMethodSnapshot,
+    common::IntoSnapshotLowerer,
     context_independent::IntoSnapshot,
-    procedure::{IntoProcedureBoolExpression, IntoProcedureFinalSnapshot, IntoProcedureSnapshot},
-    pure::{IntoPureBoolExpression, IntoPureSnapshot},
+    procedure::{
+        IntoProcedureAssertion, IntoProcedureBoolExpression, IntoProcedureFinalSnapshot,
+        IntoProcedureSnapshot,
+    },
+    pure::{IntoAssertion, IntoPureBoolExpression, IntoPureSnapshot},
 };

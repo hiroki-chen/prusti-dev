@@ -189,6 +189,21 @@ def setup(args):
     setup_rustup()
 
 
+def clean(args):
+    """Delete all temporary files."""
+    run_cargo_clean = True
+    if len(args) == 1 and args[0] == '--skip-cargo-clean':
+        run_cargo_clean = False
+    elif args:
+        error("unexpected arguments: {}", args)
+    if os.path.exists('prusti-contracts/target'):
+        shutil.rmtree('prusti-contracts/target')
+    if os.path.exists('log'):
+        shutil.rmtree('log')
+    if run_cargo_clean:
+        cargo(['clean'])
+
+
 def ide(args):
     """Start VS Code with the given arguments."""
     run_command(['code'] + args)
@@ -365,6 +380,9 @@ def main(argv):
                 error('unknown option: {}', arg)
         elif arg == 'setup':
             setup(argv[i+1:])
+            break
+        elif arg == 'clean':
+            clean(argv[i+1:])
             break
         elif arg == 'ide':
             ide(argv[i+1:])

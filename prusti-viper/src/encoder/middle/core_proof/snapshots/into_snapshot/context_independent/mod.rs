@@ -41,4 +41,13 @@ impl<'p, 'v: 'p, 'tcx: 'v> IntoSnapshotLowerer<'p, 'v, 'tcx> for ContextIndepend
     ) -> SpannedEncodingResult<vir_low::Expression> {
         unreachable!("requested context dependent encoding");
     }
+
+    fn acc_predicate_to_snapshot(
+        &mut self,
+        _lowerer: &mut Lowerer<'p, 'v, 'tcx>,
+        _predicate: &vir_mid::AccPredicate,
+        _expect_math_bool: bool,
+    ) -> SpannedEncodingResult<vir_low::Expression> {
+        unreachable!("requested context dependent encoding");
+    }
 }
